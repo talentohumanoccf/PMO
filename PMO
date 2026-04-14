@@ -1,0 +1,554 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, query } from 'firebase/firestore';
+import { 
+  Cpu, Users, Lightbulb, ShieldCheck, TrendingUp, Search, Plus, 
+  LayoutDashboard, CheckCircle2, Send, ChevronRight, Target, 
+  Rocket, Briefcase, Sparkles, UserCircle, LogIn, Fingerprint,
+  MessageSquare, ArrowRight, ArrowLeft, Zap, BarChart3, ShieldAlert,
+  Settings, Info, PieChart, Database, ListChecks, HelpCircle, Download, RefreshCw
+} from 'lucide-react';
+
+// --- CONFIGURACIÓN DE INFRAESTRUCTURA ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'comfamiliar-vmo-2026-v3';
+
+// URL DE TU APPS SCRIPT
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz6l3eSMpAjGsu5sBzvor8debxDdZSTvxCjXCEDTWwSg3ze3yytei2GFTjs5wLKRCPgpw/exec"; 
+
+// --- PREGUNTAS UNIVERSALES ---
+const DIAGNOSTIC_QUESTIONS = [
+  {
+    id: 'u1',
+    dimension: 'impact',
+    text: "¿A quiénes beneficia principalmente esta iniciativa?",
+    desc: "Buscamos priorizar a nuestros afiliados de categorías A y B.",
+    options: [
+      { label: "Público general o particulares.", value: 1 },
+      { label: "Empresas aliadas y afiliados medios.", value: 3 },
+      { label: "Familias de Categoría A y B (Propósito).", value: 5 }
+    ]
+  },
+  {
+    id: 'u2',
+    dimension: 'efficiency',
+    text: "¿Cómo mejora la entrega del servicio?",
+    desc: "Queremos saber si nos hace más ágiles o eficientes.",
+    options: [
+      { label: "Sigue siendo un proceso manual.", value: 1 },
+      { label: "Usa herramientas estándar.", value: 3 },
+      { label: "Es altamente eficiente y escalable.", value: 5 }
+    ]
+  },
+  {
+    id: 'u3',
+    dimension: 'strategy',
+    text: "¿Qué tanto cambia la experiencia del afiliado?",
+    desc: "Evaluamos si es un cambio real o mantenimiento.",
+    options: [
+      { label: "Es una mejora básica o necesaria.", value: 2 },
+      { label: "Es un servicio nuevo con valor.", value: 4 },
+      { label: "Transforma totalmente el bienestar.", value: 5 }
+    ]
+  },
+  {
+    id: 'u4',
+    dimension: 'financial',
+    text: "¿Es sostenible económicamente para la Caja?",
+    desc: "Buscamos proyectos que cuiden los recursos.",
+    options: [
+      { label: "Requiere inversión sin ahorro.", value: 1 },
+      { label: "Se paga solo a mediano plazo.", value: 3 },
+      { label: "Genera ahorros o ingresos inmediatos.", value: 5 }
+    ]
+  },
+  {
+    id: 'u5',
+    dimension: 'feasibility',
+    text: "¿Qué tan preparados estamos para ejecutarlo?",
+    desc: "Experiencia técnica y cumplimiento normativo.",
+    options: [
+      { label: "Riesgo alto / Desconocido.", value: 1 },
+      { label: "Experiencia previa comprobada.", value: 3 },
+      { label: "Seguridad total / Normativo.", value: 5 }
+    ]
+  }
+];
+
+const CATEGORIES = {
+  VMO: { label: 'Ruta Estratégica PMO', color: 'bg-indigo-600', icon: Briefcase, desc: 'Proyectos masivos con control riguroso.' },
+  INNOVATION: { label: 'Ruta de Innovación', color: 'bg-fuchsia-600', icon: Rocket, desc: 'Iniciativas experimentales de validación rápida.' },
+  PENDING: { label: 'Pendiente', color: 'bg-slate-400', icon: Sparkles, desc: 'Faltan calificaciones del comité.' },
+  OPTIMIZE: { label: 'Mejora Operativa', color: 'bg-emerald-500', icon: Zap, desc: 'Implementación inmediata para optimizar.' }
+};
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [participantInfo, setParticipantInfo] = useState(null);
+  const [regForm, setRegForm] = useState({ name: '', role: '' });
+  const [activeView, setActiveView] = useState('selection'); // 'selection', 'evaluation', 'admin', 'methodology'
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  const [projects, setProjects] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [search, setSearch] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [notif, setNotif] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'projects'));
+    return onSnapshot(q, (snap) => {
+      setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  }, [user]);
+
+  const showNotification = (msg, type = 'success') => {
+    setNotif({ msg, type });
+    setTimeout(() => setNotif(null), 3000);
+  };
+
+  const getMetrics = (ratings = {}) => {
+    const uids = Object.keys(ratings);
+    if (!uids.length) return { score: 0, progress: 0 };
+    let totalScore = 0;
+    let counts = 0;
+    DIAGNOSTIC_QUESTIONS.forEach(q => {
+      let qSum = 0; let qCount = 0;
+      uids.forEach(uid => { if (ratings[uid]?.[q.id]) { qSum += ratings[uid][q.id]; qCount++; } });
+      if (qCount > 0) { totalScore += (qSum / qCount) * (1 / DIAGNOSTIC_QUESTIONS.length); counts++; }
+    });
+    return { score: totalScore, progress: (counts / DIAGNOSTIC_QUESTIONS.length) * 100 };
+  };
+
+  const getTarget = (score, progress) => {
+    if (progress < 100) return 'PENDING';
+    if (score >= 4.0) return 'VMO';
+    if (score >= 2.8) return 'INNOVATION';
+    return 'OPTIMIZE';
+  };
+
+  const projectsWithMetrics = useMemo(() => {
+    return projects.map(p => {
+      const m = getMetrics(p.ratings);
+      return { ...p, m, target: getTarget(m.score, m.progress) };
+    });
+  }, [projects]);
+
+  const handleRating = async (pId, qId, val) => {
+    const p = projects.find(x => x.id === pId);
+    if (!p || !participantInfo) return;
+    const userRatings = p.ratings?.[user.uid] || {};
+    const newRatings = { ...p.ratings, [user.uid]: { ...userRatings, [qId]: val, userName: participantInfo.name, userRole: participantInfo.role } };
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', pId), { ratings: newRatings });
+  };
+
+  const findNextPending = () => {
+    const next = projectsWithMetrics.find(p => !p.ratings[user?.uid] || Object.keys(p.ratings[user?.uid]).length < DIAGNOSTIC_QUESTIONS.length);
+    if (next) {
+      setSelectedId(next.id);
+      setActiveView('evaluation');
+    } else {
+      showNotification("¡Has completado todas tus evaluaciones!");
+      setActiveView('selection');
+    }
+  };
+
+  // --- NUEVA FUNCIÓN: TRAER PROYECTOS DESDE GOOGLE SHEETS (HOJA 1) ---
+  const importFromSheets = async () => {
+    if (!APPS_SCRIPT_URL) return showNotification("Configura la URL de Apps Script", "error");
+    setIsSyncing(true);
+    showNotification("Leyendo proyectos de Hoja 1...");
+    try {
+      const resp = await fetch(`${APPS_SCRIPT_URL}?action=getProjects`);
+      const data = await resp.json();
+      
+      let addedCount = 0;
+      for (const item of data) {
+        // Solo agregamos si el nombre no existe ya en la base de datos
+        const exists = projects.find(p => p.name.toLowerCase() === item.nombre.toLowerCase());
+        if (!exists && item.nombre) {
+          const newDocRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'projects'));
+          await setDoc(newDocRef, { name: item.nombre, ratings: {}, createdAt: Date.now() });
+          addedCount++;
+        }
+      }
+      showNotification(`Sincronización exitosa: ${addedCount} iniciativas nuevas encontradas.`);
+    } catch (e) {
+      showNotification("Error al importar desde Sheets. Verifica la URL y permisos.", "error");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const syncAllToSheets = async () => {
+    setIsSyncing(true);
+    showNotification("Sincronizando reporte completo...");
+    const reportData = projectsWithMetrics.map(p => ({
+      nombre: p.name,
+      score: p.m.score.toFixed(2),
+      progreso: `${Math.round(p.m.progress)}%`,
+      ruta: CATEGORIES[p.target].label,
+      evaluadores: Object.keys(p.ratings).length
+    }));
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'exportAll', data: reportData })
+      });
+      showNotification("¡Portafolio sincronizado en Sheets!");
+    } catch (e) {
+      showNotification("Error de conexión al exportar", "error");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  if (!participantInfo) {
+    return (
+      <div className="min-h-screen bg-[#0F172A] flex items-center justify-center p-6 text-white font-sans">
+        <div className="max-w-md w-full bg-white/5 border border-white/10 p-10 rounded-[3rem] backdrop-blur-xl shadow-2xl animate-in zoom-in duration-500 text-center">
+          <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-indigo-500/20">
+            <UserCircle size={40} />
+          </div>
+          <h1 className="text-2xl font-black uppercase tracking-tighter">Acceso VMO Hub</h1>
+          <p className="text-slate-400 text-sm mt-2 mb-8">Identifícate para iniciar la priorización.</p>
+          <div className="space-y-4 text-left">
+            <input 
+              type="text" placeholder="Nombre completo"
+              className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-white"
+              value={regForm.name}
+              onChange={(e) => setRegForm({ ...regForm, name: e.target.value })}
+            />
+            <input 
+              type="text" placeholder="Cargo / Área"
+              className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-white"
+              value={regForm.role}
+              onChange={(e) => setRegForm({ ...regForm, role: e.target.value })}
+            />
+            <div className="flex gap-2 pt-4">
+              <button 
+                disabled={!regForm.name}
+                onClick={() => { setParticipantInfo(regForm); setIsAdmin(false); setActiveView('selection'); }}
+                className="flex-1 py-4 bg-indigo-600 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all"
+              >
+                Evaluador
+              </button>
+              <button 
+                disabled={!regForm.name}
+                onClick={() => { setParticipantInfo(regForm); setIsAdmin(true); setActiveView('admin'); }}
+                className="flex-1 py-4 bg-white text-slate-900 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
+              >
+                Administrador
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedProject = projectsWithMetrics.find(p => p.id === selectedId);
+
+  return (
+    <div className="min-h-screen bg-[#0F172A] text-slate-100 font-sans selection:bg-indigo-500/30">
+      {notif && (
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-50 px-8 py-4 rounded-full bg-white text-slate-900 shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4">
+          <CheckCircle2 size={18} className="text-indigo-600" />
+          <span className="text-xs font-black uppercase tracking-widest">{notif.msg}</span>
+        </div>
+      )}
+
+      {/* Navegación Superior */}
+      <header className="sticky top-0 z-40 bg-[#0F172A]/80 backdrop-blur-xl border-b border-white/5 px-8 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveView('selection')}>
+              <div className="bg-indigo-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                <BarChart3 className="text-white w-6 h-6" />
+              </div>
+              <h1 className="text-lg font-black tracking-tighter uppercase">VMO HUB</h1>
+            </div>
+            <nav className="hidden md:flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+              <button onClick={() => setActiveView('selection')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeView === 'selection' || activeView === 'evaluation' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>Calificar</button>
+              {isAdmin && <button onClick={() => setActiveView('admin')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeView === 'admin' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>Admin & Dashboard</button>}
+              <button onClick={() => setActiveView('methodology')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeView === 'methodology' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>Metodología</button>
+            </nav>
+          </div>
+          <div className="flex items-center gap-4">
+             <div className="text-right hidden sm:block">
+                <p className="text-[10px] font-black text-white leading-none">{participantInfo.name}</p>
+                <p className="text-[8px] font-bold text-indigo-400 uppercase tracking-widest mt-1">{participantInfo.role}</p>
+             </div>
+             <button onClick={() => setParticipantInfo(null)} className="p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors"><Settings size={18}/></button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-8 py-10">
+        
+        {/* VISTA SELECCIÓN / AUTO-AVANCE */}
+        {activeView === 'selection' && (
+          <div className="max-w-4xl mx-auto text-center space-y-12 py-10 animate-in fade-in duration-700">
+             <div className="w-24 h-24 bg-indigo-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto border border-indigo-500/20 shadow-inner">
+                <Rocket size={48} className="text-indigo-400" />
+             </div>
+             <div>
+                <h2 className="text-5xl font-black uppercase tracking-tighter text-white">Cola de Priorización</h2>
+                <p className="text-slate-400 text-lg mt-4 max-w-xl mx-auto font-medium">Pulsa el botón de abajo para que el sistema te asigne la siguiente iniciativa pendiente por calificar.</p>
+             </div>
+             <button 
+                onClick={findNextPending}
+                className="group bg-indigo-600 text-white px-12 py-6 rounded-[2.5rem] font-black uppercase tracking-widest text-sm flex items-center gap-4 mx-auto hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-indigo-500/20"
+             >
+                Iniciar / Continuar Evaluación <ArrowRight className="group-hover:translate-x-2 transition-transform" />
+             </button>
+             
+             <div className="pt-10 grid grid-cols-1 md:grid-cols-3 gap-6 opacity-60">
+                <div className="bg-white/5 p-6 rounded-3xl border border-white/5 text-center">
+                   <div className="text-2xl font-black text-white">{projects.length}</div>
+                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Total Proyectos</div>
+                </div>
+                <div className="bg-white/5 p-6 rounded-3xl border border-white/5 text-center">
+                   <div className="text-2xl font-black text-white">{projectsWithMetrics.filter(p => p.ratings[user?.uid]).length}</div>
+                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Tus Evaluaciones</div>
+                </div>
+                <div className="bg-white/5 p-6 rounded-3xl border border-white/5 text-center">
+                   <div className="text-2xl font-black text-white">{projectsWithMetrics.filter(p => !p.ratings[user?.uid]).length}</div>
+                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Pendientes</div>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* VISTA EVALUACIÓN */}
+        {activeView === 'evaluation' && selectedProject && (
+          <div className="max-w-4xl mx-auto space-y-10 animate-in slide-in-from-right-8 duration-700">
+             <div className="flex justify-between items-end border-b border-white/5 pb-8">
+                <div className="space-y-3">
+                  <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-black px-3 py-1 rounded-full border border-indigo-500/20 uppercase tracking-widest">Iniciativa Actual</span>
+                  <h2 className="text-5xl font-black uppercase tracking-tighter text-white leading-none">{selectedProject.name}</h2>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Tu Progreso</p>
+                  <div className="text-3xl font-black text-white">{Math.round(selectedProject.m.progress)}%</div>
+                </div>
+             </div>
+
+             <div className="grid grid-cols-1 gap-14 py-8">
+                {DIAGNOSTIC_QUESTIONS.map((q, idx) => {
+                  const myAns = selectedProject.ratings[user?.uid]?.[q.id];
+                  return (
+                    <div key={q.id}>
+                      <div className="flex items-start gap-5 mb-6">
+                        <span className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black shadow-lg shadow-indigo-500/20 shrink-0">{idx + 1}</span>
+                        <div>
+                          <h3 className="text-xl font-bold text-white uppercase tracking-tight">{q.text}</h3>
+                          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1 leading-relaxed">{q.desc}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 ml-14">
+                        {q.options.map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => handleRating(selectedProject.id, q.id, opt.value)}
+                            className={`p-6 rounded-3xl text-left border-2 transition-all flex flex-col gap-2 ${
+                              myAns === opt.value ? 'border-indigo-500 bg-indigo-500/10 shadow-xl' : 'border-white/5 bg-white/5 hover:border-white/10'
+                            }`}
+                          >
+                            <span className={`text-[10px] font-black uppercase ${myAns === opt.value ? 'text-indigo-300' : 'text-slate-700'}`}>Opción {opt.value}</span>
+                            <span className={`text-sm font-bold leading-snug ${myAns === opt.value ? 'text-white' : 'text-slate-400'}`}>{opt.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+             </div>
+
+             <div className="flex justify-between pt-10 border-t border-white/5">
+                <button onClick={() => setActiveView('selection')} className="px-8 py-5 text-slate-500 font-black uppercase tracking-widest text-xs hover:text-white transition-colors flex items-center gap-2"><ArrowLeft size={16}/> Volver</button>
+                <button 
+                  disabled={selectedProject.m.progress < 100}
+                  onClick={() => { showNotification("Proyecto guardado"); findNextPending(); }}
+                  className="bg-white text-slate-900 px-10 py-5 rounded-[2rem] font-black uppercase tracking-widest text-xs flex items-center gap-3 hover:scale-105 active:scale-95 transition-all disabled:opacity-30"
+                >
+                  Continuar al siguiente <ArrowRight size={18}/>
+                </button>
+             </div>
+          </div>
+        )}
+
+        {/* VISTA ADMINISTRADOR (MODO ADMIN + DASHBOARD) */}
+        {activeView === 'admin' && (
+          <div className="space-y-12 animate-in fade-in duration-700">
+             {/* Stats Dashboard */}
+             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                {[
+                  { label: "Total Iniciativas", val: projects.length, icon: Database, color: "text-indigo-400" },
+                  { label: "Puntaje Promedio", val: (projectsWithMetrics.reduce((a,b)=>a+b.m.score,0)/projects.length || 0).toFixed(2), icon: BarChart3, color: "text-emerald-400" },
+                  { label: "Ruta PMO", val: projectsWithMetrics.filter(p=>p.target==='VMO').length, icon: Briefcase, color: "text-blue-400" },
+                  { label: "Ruta Innovación", val: projectsWithMetrics.filter(p=>p.target==='INNOVATION').length, icon: Rocket, color: "text-fuchsia-400" },
+                ].map((stat, i) => {
+                  const Icon = stat.icon;
+                  return (
+                    <div key={i} className="bg-white/5 border border-white/10 p-8 rounded-[2.5rem] flex flex-col items-center text-center gap-2 backdrop-blur-sm">
+                      <Icon size={32} className={stat.color} />
+                      <span className="text-4xl font-black text-white">{stat.val}</span>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{stat.label}</span>
+                    </div>
+                  );
+                })}
+             </div>
+
+             <div className="flex justify-between items-center">
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-white">Tablero de Control</h2>
+                <div className="flex gap-4">
+                   <button 
+                      onClick={importFromSheets}
+                      disabled={isSyncing}
+                      className="bg-emerald-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/10 disabled:opacity-50"
+                   >
+                      <RefreshCw size={16} className={isSyncing ? "animate-spin" : ""}/> Sincronizar Catálogo
+                   </button>
+                   <button 
+                      onClick={syncAllToSheets}
+                      disabled={isSyncing}
+                      className="bg-white text-slate-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-slate-100 transition-all shadow-xl shadow-white/5 disabled:opacity-50"
+                   >
+                      <Download size={16}/> Exportar Reporte
+                   </button>
+                   <button onClick={() => setIsAdding(true)} className="bg-indigo-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 shadow-xl shadow-indigo-500/10"><Plus size={16}/> Nueva Idea</button>
+                </div>
+             </div>
+
+             <div className="bg-white/5 border border-white/10 rounded-[2.5rem] overflow-hidden backdrop-blur-sm shadow-2xl">
+                <table className="w-full text-left">
+                   <thead className="bg-white/5 border-b border-white/5">
+                      <tr>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Iniciativa</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Score</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Progreso Global</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Ruta Asignada</th>
+                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acción</th>
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-white/5">
+                      {projectsWithMetrics.map(p => (
+                        <tr key={p.id} className="hover:bg-white/5 transition-colors group">
+                           <td className="px-8 py-5 font-bold text-sm text-slate-200">{p.name}</td>
+                           <td className="px-8 py-5 font-black text-indigo-400 text-center text-lg">{p.m.score.toFixed(2)}</td>
+                           <td className="px-8 py-5">
+                              <div className="flex items-center gap-3">
+                                 <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-full bg-indigo-500" style={{ width: `${p.m.progress}%` }} />
+                                 </div>
+                                 <span className="text-[10px] font-black text-slate-500">{Math.round(p.m.progress)}%</span>
+                              </div>
+                           </td>
+                           <td className="px-8 py-5">
+                              <span className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase ${CATEGORIES[p.target].color} text-white shadow-lg`}>
+                                 {CATEGORIES[p.target].label}
+                              </span>
+                           </td>
+                           <td className="px-8 py-5 text-right">
+                              <button onClick={() => { setSelectedId(p.id); setActiveView('evaluation'); }} className="p-2.5 bg-white/5 rounded-xl opacity-0 group-hover:opacity-100 transition-all hover:bg-white/10"><ChevronRight size={18}/></button>
+                           </td>
+                        </tr>
+                      ))}
+                   </tbody>
+                </table>
+             </div>
+          </div>
+        )}
+
+        {/* VISTA METODOLOGÍA */}
+        {activeView === 'methodology' && (
+          <div className="max-w-4xl mx-auto space-y-12 animate-in slide-in-from-right-8 duration-700 text-white">
+             <div className="text-center space-y-4">
+                <h2 className="text-6xl font-black uppercase tracking-tighter">Priorización VMO 2026</h2>
+                <p className="text-slate-400 text-lg max-w-2xl mx-auto">Basada en la matriz de valor de Comfamiliar Risaralda, priorizando el impacto social por encima del retorno financiero tradicional.</p>
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {[
+                  { title: "Valor Social", val: "35%", desc: "Mide el beneficio directo a los afiliados de menores ingresos (Categoría A y B)." },
+                  { title: "Estrategia", val: "25%", desc: "Conexión con los pilares del plan de desarrollo de la Caja." },
+                  { title: "Sostenibilidad", val: "20%", desc: "Capacidad de generar ahorros o eficiencias operativas." },
+                  { title: "Factibilidad", val: "20%", desc: "Nivel de preparación técnica y cumplimiento de normas legales." }
+                ].map((m, i) => (
+                  <div key={i} className="bg-white/5 border border-white/10 p-10 rounded-[3rem] space-y-3 backdrop-blur-sm">
+                     <div className="flex justify-between items-center">
+                        <span className="text-3xl font-black text-indigo-400">{m.val}</span>
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 border border-indigo-500/10">0{i+1}</div>
+                     </div>
+                     <h4 className="text-xl font-black uppercase tracking-tight text-white">{m.title}</h4>
+                     <p className="text-slate-500 text-sm font-medium leading-relaxed">{m.desc}</p>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* Modal Nueva Idea */}
+      {isAdding && (
+        <div className="fixed inset-0 z-50 bg-[#0F172A]/90 backdrop-blur-md flex items-center justify-center p-6">
+           <div className="bg-white/10 border border-white/10 p-12 rounded-[3.5rem] max-w-lg w-full text-center shadow-2xl animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-indigo-500/20"><Plus size={32} /></div>
+              <h3 className="text-2xl font-black uppercase mb-8 text-white">Nueva Iniciativa</h3>
+              <input 
+                autoFocus type="text" placeholder="Ej. Centro Recreativo X"
+                className="w-full bg-white/5 border border-white/10 p-5 rounded-2xl mb-10 outline-none focus:ring-2 focus:ring-indigo-500 text-center font-bold text-white text-xl"
+                onChange={(e) => setNewProjectName(e.target.value)}
+              />
+              <div className="flex gap-4">
+                 <button onClick={() => setIsAdding(false)} className="flex-1 py-4 text-[10px] font-black uppercase text-slate-500 hover:text-white transition-colors tracking-widest">Cancelar</button>
+                 <button 
+                  onClick={async () => {
+                    if(!newProjectName.trim()) return;
+                    await setDoc(doc(collection(db, 'artifacts', appId, 'public', 'data', 'projects')), { name: newProjectName, ratings: {}, createdAt: Date.now() });
+                    setNewProjectName(''); setIsAdding(false); showNotification("Iniciativa Creada");
+                  }} 
+                  className="flex-1 py-4 bg-white text-slate-900 rounded-2xl font-black uppercase text-[10px] active:scale-95 transition-all tracking-widest shadow-xl shadow-white/5"
+                 >
+                    Guardar Nodo
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Icono Award SVG
+function Award({ size = 24, className = "" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="8" r="7" />
+      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
+    </svg>
+  );
+}
