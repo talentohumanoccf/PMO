@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VMO Hub Comfamiliar 2026 - Sheets Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;400;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0F172A; color: #F1F5F9; }
+        .glass-card { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        .loader { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #6366f1; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .btn-active { border-color: #6366f1; background-color: rgba(99, 102, 241, 0.1); box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.2); transform: scale(1.05); }
+        .scroll-custom::-webkit-scrollbar { width: 6px; }
+        .scroll-custom::-webkit-scrollbar-track { background: rgba(255,255,255,0.01); }
+        .scroll-custom::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+    </style>
+</head>
+<body class="min-h-screen selection:bg-indigo-500/30">
+
+    <!-- Notificaciones HUD -->
+    <div id="notification-hud" class="fixed top-8 left-1/2 -translate-x-1/2 z-[110] px-8 py-4 rounded-full bg-white text-slate-900 shadow-2xl flex items-center gap-3 hidden transform transition-all">
+        <i data-lucide="check-circle-2" id="notif-icon" class="text-indigo-600 w-5 h-5"></i>
+        <span id="notif-text" class="text-xs font-black uppercase tracking-widest">Sincronizado</span>
+    </div>
+
+    <!-- Pantalla de Carga -->
+    <div id="loading-screen" class="fixed inset-0 bg-[#0F172A] z-[100] flex flex-col items-center justify-center gap-4 text-center">
+        <div class="loader"></div>
+        <p id="loading-text" class="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400">Iniciando Protocolo 2026...</p>
+    </div>
+
+    <!-- Registro de Usuario -->
+    <div id="auth-screen" class="hidden min-h-screen flex items-center justify-center p-6 relative">
+        <div class="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 via-transparent to-fuchsia-500/10"></div>
+        <div class="max-w-md w-full glass-card p-10 rounded-[3rem] relative z-10 shadow-2xl text-center">
+            <div class="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-indigo-500/20">
+                <i data-lucide="user-circle" class="text-white w-10 h-10"></i>
+            </div>
+            <h1 class="text-2xl font-black uppercase tracking-tighter text-white">VMO HUB</h1>
+            <p class="text-slate-400 text-sm mt-2 mb-8 uppercase tracking-widest font-bold">Comfamiliar Risaralda</p>
+            
+            <div class="space-y-4 text-left">
+                <input id="input-name" type="text" placeholder="Nombre completo" class="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-white font-medium">
+                <input id="input-role" type="text" placeholder="Cargo / Área" class="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-white font-medium">
+                
+                <div class="flex gap-2 pt-4">
+                    <button onclick="loginUser('Experto')" class="flex-1 py-4 bg-indigo-600 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/10">Evaluador</button>
+                    <button onclick="loginUser('Admin', true)" class="flex-1 py-4 bg-white text-slate-900 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all">Administrador</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Aplicación Principal -->
+    <div id="app-content" class="hidden">
+        <header class="sticky top-0 z-40 bg-[#0F172A]/80 backdrop-blur-xl border-b border-white/5 px-8 py-4">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <div class="flex items-center gap-6">
+                    <div class="bg-indigo-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg cursor-pointer" onclick="location.reload()">
+                        <i data-lucide="bar-chart-3" class="text-white w-6 h-6"></i>
+                    </div>
+                    <nav class="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+                        <button id="nav-eval" onclick="changeView('selection')" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-indigo-600 text-white">Calificar</button>
+                        <button id="nav-admin" onclick="changeView('admin')" class="hidden px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all text-slate-500 hover:text-white">Dashboard</button>
+                        <button id="nav-meth" onclick="changeView('methodology')" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all text-slate-500 hover:text-white">Metodología</button>
+                    </nav>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="text-right hidden sm:block">
+                        <p id="user-display-name" class="text-[10px] font-black text-white leading-none">---</p>
+                        <p id="user-display-role" class="text-[8px] font-bold text-indigo-400 uppercase tracking-widest mt-1">---</p>
+                    </div>
+                    <button onclick="refreshData()" id="btn-refresh" class="p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors text-emerald-400">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto px-8 py-10">
+            <!-- VISTA: SELECCIÓN -->
+            <div id="view-selection" class="max-w-4xl mx-auto text-center space-y-12 py-10 animate-in fade-in">
+                <div class="w-24 h-24 bg-indigo-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto border border-indigo-500/20 shadow-inner">
+                    <i data-lucide="rocket" class="text-indigo-400 w-12 h-12"></i>
+                </div>
+                <div>
+                    <h2 class="text-5xl font-black uppercase tracking-tighter text-white leading-none">Cola de Priorización</h2>
+                    <p class="text-slate-400 text-lg mt-4 max-w-xl mx-auto font-medium leading-relaxed">El sistema detectará automáticamente tu progreso y te asignará la siguiente iniciativa pendiente en Google Sheets.</p>
+                </div>
+                <button onclick="findNextPending()" class="group bg-indigo-600 text-white px-12 py-6 rounded-[2.5rem] font-black uppercase tracking-widest text-sm flex items-center gap-4 mx-auto hover:scale-105 transition-all shadow-2xl shadow-indigo-500/20">
+                    Siguiente Pendiente <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                </button>
+                <div id="user-stats" class="pt-10 grid grid-cols-1 md:grid-cols-3 gap-6 opacity-80"></div>
+            </div>
+
+            <!-- VISTA: EVALUACIÓN -->
+            <div id="view-evaluation" class="hidden max-w-4xl mx-auto space-y-10 animate-in slide-in-from-right-8">
+                <div id="eval-header" class="flex justify-between items-end border-b border-white/5 pb-8"></div>
+                <div id="questions-container" class="grid grid-cols-1 gap-14 py-8"></div>
+                <div class="flex justify-between pt-10 border-t border-white/5">
+                    <button onclick="changeView('selection')" class="px-8 py-5 text-slate-500 font-black uppercase tracking-widest text-xs hover:text-white transition-colors">Abortar</button>
+                    <button id="btn-next" onclick="submitAndNext()" class="bg-white text-slate-900 px-10 py-5 rounded-[2rem] font-black uppercase tracking-widest text-xs flex items-center gap-3 hover:scale-105 transition-all disabled:opacity-30" disabled>
+                        Guardar Evaluación <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- VISTA: DASHBOARD -->
+            <div id="view-admin" class="hidden space-y-12 animate-in fade-in">
+                <div id="admin-stats-grid" class="grid grid-cols-1 md:grid-cols-4 gap-6"></div>
+                <div class="flex justify-between items-center">
+                    <h2 class="text-4xl font-black uppercase tracking-tighter">Mando de Control</h2>
+                    <button onclick="refreshData()" class="bg-indigo-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/10">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sincronizar Catálogo
+                    </button>
+                </div>
+                <div class="glass-card rounded-[2.5rem] overflow-hidden shadow-2xl">
+                    <div class="overflow-x-auto scroll-custom">
+                        <table class="w-full text-left">
+                            <thead class="bg-white/5 border-b border-white/5">
+                                <tr class="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                    <th class="px-8 py-5">Proyecto / Iniciativa</th>
+                                    <th class="px-8 py-5 text-center">Score VMO</th>
+                                    <th class="px-8 py-5 text-center">Estado</th>
+                                    <th class="px-8 py-5">Ruta Sugerida</th>
+                                    <th class="px-8 py-5 text-right">Detalle</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-table-body" class="divide-y divide-white/5 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA: METODOLOGÍA -->
+            <div id="view-methodology" class="hidden max-w-4xl mx-auto space-y-12 animate-in fade-in text-center">
+                <h2 class="text-5xl font-black uppercase tracking-tighter">Metodología 2026</h2>
+                <p class="text-slate-400 max-w-xl mx-auto font-medium">Priorización basada en el modelo de Valor Híbrido de Comfamiliar Risaralda.</p>
+                <div id="meth-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6 text-left"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- URL ACTUALIZADA POR EL USUARIO ---
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyALcfc7sKvysv1kZgnj1KRtg6mq-qfw5t0H_370ipmPPWqyz_fX17EHs8NfGCJYGXYgA/exec";
+        
+        // Estructura de Calificación
+        const QUESTIONS = [
+            { id: 'q1', dim: 'social', title: "¿A quiénes beneficia principalmente?", desc: "Prioridad Categoría A y B (Afiliados).", options: [{l:"Particulares", v:1}, {l:"Empresas", v:3}, {l:"Afiliados A y B", v:5}], weight: 0.35 },
+            { id: 'q2', dim: 'strat', title: "¿Alineación Estratégica?", desc: "Nivel de aporte al plan de desarrollo.", options: [{l:"Baja", v:1}, {l:"Media", v:3}, {l:"Directa", v:5}], weight: 0.25 },
+            { id: 'q3', dim: 'effi', title: "¿Eficiencia Operativa?", desc: "Capacidad de optimizar procesos.", options: [{l:"Manual", v:1}, {l:"Mejora", v:3}, {l:"Alta Escala", v:5}], weight: 0.20 },
+            { id: 'q4', dim: 'fina', title: "¿Sostenibilidad Financiera?", desc: "Ahorro o generación de recursos.", options: [{l:"Gasto", v:1}, {l:"Equilibrio", v:3}, {l:"Retorno Alto", v:5}], weight: 0.20 }
+        ];
+
+        let projects = [];
+        let globalEvaluations = [];
+        let participant = null;
+        let isAdmin = false;
+        let selectedId = null;
+        let currentRatings = {};
+
+        // Inicialización
+        async function init() {
+            try {
+                const response = await fetch(`${APPS_SCRIPT_URL}?action=getFullData`);
+                const text = await response.text();
+                
+                if (text.includes("VMO Sheets Active") || text.includes("VMO Connector")) {
+                    showError("El Script está en modo Placeholder. Por favor, asegúrate de haber pegado el código de lógica en el Apps Script.");
+                    return;
+                }
+
+                let result = JSON.parse(text);
+                projects = result.projects || [];
+                globalEvaluations = result.evaluations || [];
+                
+                document.getElementById('loading-screen').classList.add('hidden');
+                document.getElementById('auth-screen').classList.remove('hidden');
+                lucide.createIcons();
+            } catch (error) {
+                console.error(error);
+                showError("Error de conexión. Verifica que el Apps Script esté implementado como 'Aplicación Web' y el acceso sea 'Cualquiera'.");
+            }
+        }
+
+        function showError(msg) {
+            document.getElementById('loading-screen').innerHTML = `
+                <div class="p-10 text-center max-w-lg glass-card rounded-[3rem] border-red-500/20 m-6">
+                    <i data-lucide="alert-triangle" class="w-16 h-16 text-red-500 mx-auto mb-6"></i>
+                    <h2 class="text-2xl font-bold text-white mb-4 uppercase tracking-tighter">Error de Sistema</h2>
+                    <p class="text-slate-400 text-sm mb-8 leading-relaxed">${msg}</p>
+                    <button onclick="location.reload()" class="w-full px-6 py-4 bg-white text-slate-900 rounded-2xl font-black uppercase text-xs">Reintentar</button>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        function loginUser(role, admin = false) {
+            const name = document.getElementById('input-name').value.trim();
+            if(!name) return showNotif("Nombre requerido", "error");
+            
+            participant = { name, role: document.getElementById('input-role').value.trim() || role };
+            isAdmin = admin;
+            
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('app-content').classList.remove('hidden');
+            document.getElementById('user-display-name').innerText = participant.name;
+            document.getElementById('user-display-role').innerText = participant.role;
+            
+            if(isAdmin) document.getElementById('nav-admin').classList.remove('hidden');
+            
+            changeView(isAdmin ? 'admin' : 'selection');
+            updateStats();
+        }
+
+        function changeView(view) {
+            ['selection', 'evaluation', 'admin', 'methodology'].forEach(v => {
+                const el = document.getElementById(`view-${v}`);
+                if(el) el.classList.add('hidden');
+                const btn = document.getElementById(`nav-${v === 'selection' ? 'eval' : (v === 'methodology' ? 'meth' : v)}`);
+                if(btn) btn.className = "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all text-slate-500 hover:text-white";
+            });
+            
+            document.getElementById(`view-${view}`).classList.remove('hidden');
+            const activeNav = (view === 'selection' || view === 'evaluation') ? 'eval' : (view === 'methodology' ? 'meth' : 'admin');
+            const activeBtn = document.getElementById(`nav-${activeNav}`);
+            if(activeBtn) activeBtn.className = "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-indigo-600 text-white shadow-lg";
+
+            if(view === 'admin') renderAdmin();
+            if(view === 'methodology') renderMethodology();
+            lucide.createIcons();
+        }
+
+        function findNextPending() {
+            const evaluatedNames = globalEvaluations
+                .filter(e => e.evaluador.toLowerCase() === participant.name.toLowerCase())
+                .map(e => e.proyecto.toLowerCase());
+            
+            const next = projects.find(p => !evaluatedNames.includes(p.nombre.toLowerCase()));
+            
+            if(next) {
+                startEvaluation(next);
+            } else {
+                showNotif("¡Portafolio Completo!", "success");
+                changeView('selection');
+            }
+        }
+
+        function startEvaluation(proj) {
+            selectedId = proj.nombre;
+            currentRatings = {};
+            document.getElementById('view-selection').classList.add('hidden');
+            document.getElementById('view-evaluation').classList.remove('hidden');
+            
+            document.getElementById('eval-header').innerHTML = `
+                <div class="space-y-2">
+                    <span class="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/10">Iniciativa en Análisis</span>
+                    <h2 class="text-5xl font-black uppercase tracking-tighter text-white leading-none mt-2">${proj.nombre}</h2>
+                </div>
+            `;
+            renderQuestions();
+        }
+
+        function renderQuestions() {
+            document.getElementById('questions-container').innerHTML = QUESTIONS.map((q, idx) => `
+                <div class="space-y-6 group">
+                    <div class="flex items-start gap-4">
+                        <span class="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black shadow-lg group-hover:scale-110 transition-transform">${idx+1}</span>
+                        <div>
+                            <h3 class="text-xl font-bold text-white uppercase tracking-tight">${q.title}</h3>
+                            <p class="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">${q.desc}</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 ml-14">
+                        ${q.options.map(opt => `
+                            <button onclick="setRating('${q.id}', ${opt.v})" id="btn-${q.id}-${opt.v}" 
+                                class="p-6 rounded-3xl text-left border-2 border-white/5 bg-white/5 hover:border-white/10 transition-all group/btn">
+                                <span class="text-[9px] font-black uppercase text-slate-500 block mb-1 group-hover/btn:text-indigo-300">Opción ${opt.v}</span>
+                                <span class="text-sm font-bold text-slate-200 leading-tight">${opt.l}</span>
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+            updateButtonState();
+        }
+
+        function setRating(qId, val) {
+            currentRatings[qId] = val;
+            [1,3,5].forEach(v => {
+                const b = document.getElementById(`btn-${qId}-${v}`);
+                if(b) b.className = v === val 
+                    ? "p-6 rounded-3xl text-left border-2 border-indigo-600 bg-indigo-600/10 shadow-xl scale-105 transition-all text-white font-bold" 
+                    : "p-6 rounded-3xl text-left border-2 border-white/5 bg-white/5 hover:border-white/10 transition-all opacity-40";
+            });
+            updateButtonState();
+        }
+
+        function updateButtonState() {
+            const finished = Object.keys(currentRatings).length === QUESTIONS.length;
+            document.getElementById('btn-next').disabled = !finished;
+        }
+
+        async function submitAndNext() {
+            showNotif("Enviando a Sheets...");
+            const data = {
+                proyecto: selectedId,
+                evaluador: participant.name,
+                cargo: participant.role,
+                ...currentRatings,
+                fecha: new Date().toLocaleString()
+            };
+
+            try {
+                await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify({ action: 'addEvaluation', data })
+                });
+                
+                globalEvaluations.push(data);
+                updateStats();
+                showNotif("Guardado");
+                findNextPending();
+            } catch (error) {
+                showNotif("Error de envío", "error");
+            }
+        }
+
+        function renderAdmin() {
+            const summary = projects.map(p => {
+                const evals = globalEvaluations.filter(e => e.proyecto.toLowerCase() === p.nombre.toLowerCase());
+                let score = 0;
+                if(evals.length > 0) {
+                    QUESTIONS.forEach(q => {
+                        const avgQ = evals.reduce((a, b) => a + (Number(b[q.id]) || 0), 0) / evals.length;
+                        score += avgQ * q.weight;
+                    });
+                }
+                return { ...p, score, evalCount: evals.length };
+            }).sort((a,b) => b.score - a.score);
+
+            const totalScoreSum = summary.reduce((a, b) => a + b.score, 0);
+            const avgTotal = (projects.length > 0 ? totalScoreSum / projects.length : 0).toFixed(2);
+            
+            document.getElementById('admin-stats-grid').innerHTML = `
+                <div class="glass-card p-8 rounded-[2.5rem] text-center">
+                    <div class="text-4xl font-black">${projects.length}</div>
+                    <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">Iniciativas</p>
+                </div>
+                <div class="glass-card p-8 rounded-[2.5rem] text-center border-l-4 border-l-emerald-500">
+                    <div class="text-4xl font-black">${avgTotal}</div>
+                    <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">Puntaje VMO</p>
+                </div>
+                <div class="glass-card p-8 rounded-[2.5rem] text-center">
+                    <div class="text-4xl font-black">${globalEvaluations.length}</div>
+                    <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">Evaluaciones</p>
+                </div>
+                <div class="glass-card p-8 rounded-[2.5rem] text-center">
+                    <div class="text-4xl font-black text-indigo-400">${summary.filter(s => s.score >= 3.8).length}</div>
+                    <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">Prioridad Alta</p>
+                </div>
+            `;
+
+            document.getElementById('admin-table-body').innerHTML = summary.map(p => `
+                <tr class="hover:bg-white/5 transition-colors group">
+                    <td class="px-8 py-5">
+                        <p class="font-bold text-slate-100">${p.nombre}</p>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-tight">${p.evalCount} votos</p>
+                    </td>
+                    <td class="px-8 py-5 text-center font-black text-indigo-400 text-xl">${p.score.toFixed(2)}</td>
+                    <td class="px-8 py-5 text-center">
+                        <div class="w-24 h-1.5 bg-white/5 rounded-full overflow-hidden mx-auto">
+                            <div class="h-full bg-indigo-500" style="width: ${(p.score/5)*100}%"></div>
+                        </div>
+                    </td>
+                    <td class="px-8 py-5">
+                        <span class="px-3 py-1 rounded-full text-[8px] font-black uppercase ${p.score >= 3.8 ? 'bg-indigo-600' : (p.score >= 2.6 ? 'bg-fuchsia-600' : 'bg-slate-600')} text-white">
+                            ${p.score >= 3.8 ? 'Ruta PMO' : (p.score >= 2.6 ? 'Innovación' : 'Optimización')}
+                        </span>
+                    </td>
+                    <td class="px-8 py-5 text-right"><button onclick="startEvaluation({nombre:'${p.nombre}'})" class="p-2 hover:bg-white/10 rounded-lg"><i data-lucide="chevron-right"></i></button></td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function renderMethodology() {
+            document.getElementById('meth-grid').innerHTML = QUESTIONS.map(q => `
+                <div class="glass-card p-8 rounded-[2rem] hover:border-indigo-500/30 transition-all group">
+                    <div class="flex justify-between items-center mb-4">
+                        <span class="text-2xl font-black text-indigo-400">${(q.weight*100)}%</span>
+                        <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400 uppercase font-bold text-[9px] border border-indigo-500/20">${q.dim}</div>
+                    </div>
+                    <h4 class="text-lg font-black uppercase text-white mb-2 leading-tight group-hover:text-indigo-300 transition-colors">${q.title}</h4>
+                    <p class="text-slate-500 text-sm leading-relaxed font-medium">${q.desc}</p>
+                </div>
+            `).join('');
+        }
+
+        function updateStats() {
+            const myCount = globalEvaluations.filter(e => e.evaluador.toLowerCase() === participant?.name.toLowerCase()).length;
+            const container = document.getElementById('user-stats');
+            if(container) {
+                container.innerHTML = `
+                    <div class="glass-card p-6 rounded-3xl">
+                        <div class="text-2xl font-black text-white">${projects.length}</div>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase mt-1 tracking-widest">En Catálogo</p>
+                    </div>
+                    <div class="glass-card p-6 rounded-3xl border-l-4 border-l-emerald-500">
+                        <div class="text-2xl font-black text-emerald-400">${myCount}</div>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase mt-1 tracking-widest">Tus Logros</p>
+                    </div>
+                    <div class="glass-card p-6 rounded-3xl">
+                        <div class="text-2xl font-black text-indigo-400">${projects.length - myCount}</div>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase mt-1 tracking-widest">Pendientes</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function refreshData() {
+            const btn = document.getElementById('btn-refresh');
+            btn.classList.add('animate-spin');
+            showNotif("Sincronizando...");
+            try {
+                const response = await fetch(`${APPS_SCRIPT_URL}?action=getFullData`);
+                const result = await response.json();
+                projects = result.projects || [];
+                globalEvaluations = result.evaluations || [];
+                if(isAdmin) renderAdmin();
+                updateStats();
+                showNotif("Datos en Tiempo Real");
+            } catch (e) {
+                showNotif("Falla en Sincronía", "error");
+            } finally {
+                btn.classList.remove('animate-spin');
+            }
+        }
+
+        function showNotif(msg, type = 'success') {
+            const hud = document.getElementById('notification-hud');
+            const icon = document.getElementById('notif-icon');
+            document.getElementById('notif-text').innerText = msg;
+            
+            hud.classList.remove('hidden', 'bg-red-500', 'text-white', 'flex');
+            icon.classList.remove('text-white', 'text-indigo-600');
+
+            if(type === 'error') {
+                hud.classList.add('bg-red-500', 'text-white');
+                icon.classList.add('text-white');
+            } else {
+                hud.classList.add('bg-white', 'text-slate-900');
+                icon.classList.add('text-indigo-600');
+            }
+            
+            hud.classList.add('flex');
+            setTimeout(() => hud.classList.add('hidden'), 3500);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
